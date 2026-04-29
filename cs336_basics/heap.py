@@ -15,8 +15,6 @@ def init_heap(input: list):
 
 # Given identifier, decrease key and maintain heap invariant (sift down).
 def decrement_key(id_heap, id, amt=1, aux=[]):
-    print('---- DECREMENT KEY ----')
-    print(id, aux)
     heap = id_heap['heap']
     id_map = id_heap['id_map']
     new_val = list(heap[id_map[id]])
