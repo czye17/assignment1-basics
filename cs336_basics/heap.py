@@ -49,11 +49,15 @@ def remove_key(id_heap, id):
     id_map = id_heap['id_map']
     if id in id_map:
         index = id_map[id]
-        heap[index] = heap.pop()
-        id_map[heap[index][1]] = index
-        _sift_down(id_heap, index)
-        _sift_up(id_heap, index)
-        id_map.pop(id)
+        if index == len(heap) - 1:
+            heap.pop()
+            id_map.pop(id)
+        else:
+            heap[index] = heap.pop()
+            id_map[heap[index][1]] = index
+            _sift_down(id_heap, index)
+            _sift_up(id_heap, index)
+            id_map.pop(id)
 
 # Return maximum element
 def pop(id_heap):

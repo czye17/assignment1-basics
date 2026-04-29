@@ -38,38 +38,53 @@ def update_pair_counts(current_counts: dict, vocab: dict, node_list: DoublyLinke
     new_vocab = max_pair[1][0] + max_pair[1][1]
     vocab[len(vocab)] = new_vocab # add max-pair (a, b) to vocabulary
     if verbose:
-        
         print(f'MAX PAIR: {max_pair}')
-        print(f'NEW VOCAB: {new_vocab}')
+        print(f'NEW VOCAB: {new_vocab} TOKEN: {len(vocab)}')
 
     # maintain current counts:
     #     add occurrences of (a, b, x) and remove (b, x) for all (a, b, x).
     #     add occurrences of (x, a, b) and remove (x, a) for all (x, a, b). TODO: add previous map!
     # maintain index_to_vocab: update all occurrences of (a, b) to indices where a starts.
 
+    merged_boundary = 0
+
     for i in max_pair[2]:
-        if verbose: print(f'---- ONE UPDATE ----: index {i}')
-        curr_node = index_to_node_list[i]
-        new_node, old_nodes = node_list.merge((i, len(vocab)), curr_node)
+        if i >= merged_boundary:
+            if verbose: print(f'---- ONE UPDATE ----: index {i}')
+            curr_node = index_to_node_list[i]
+            if verbose:
+                print(f'NODE: {curr_node}')
+                print(f'NEXT: {curr_node.next}')
+            new_node, old_nodes = node_list.merge((i, len(vocab) - 1), curr_node)
+            if verbose:
+                print(f'NEW NODE: {new_node}')
+                for node in old_nodes:
+                    print(f'OLD NODE: {node}')
+                
+            # maintain index_to_node_list
+            index_to_node_list[i] = new_node
+            index_to_node_list.pop(old_nodes[1].data[0])
 
-        # maintain index_to_node_list
-        index_to_node_list[i] = new_node
-        del index_to_node_list[old_nodes[1].data[0]]
+            if new_node.next is not None:
+                next_vocab = vocab[new_node.next.data[1]]
+                old_pair = (max_pair[1][1], bytes(next_vocab))
+                if verbose: print(f'DECREMENT: {old_pair} MAX_PAIR: {max_pair[1]}')
+                if old_pair != max_pair[1]: decrement_key(current_counts, old_pair, aux=[old_nodes[1].data[0]])
+                new_pair = (new_vocab, next_vocab)
+                if verbose: print(f'INCREMENT: {new_pair}')
+                push(current_counts, (1, new_pair, [i]))
+                
+            if new_node.prev is not None:
+                prev_vocab = vocab[new_node.prev.data[1]]
+                old_pair = (bytes(prev_vocab), max_pair[1][0])
+                if verbose: print(f'DECREMENT: {old_pair} MAX_PAIR: {max_pair[1]}')
+                if old_pair != max_pair[1]: decrement_key(current_counts, old_pair, aux=[new_node.prev.data[0]])
+                new_pair = (prev_vocab, new_vocab)
+                if verbose: print(f'INCREMENT: {new_pair}')
+                push(current_counts, (1, new_pair, [new_node.prev.data[0]]))
 
-        if new_node.next is not None:
-            next_vocab = vocab[new_node.next.data[1]]
-            old_pair = (max_pair[1][1], bytes(next_vocab))
-            decrement_key(current_counts, old_pair, aux=[i + len(max_pair[1][0])])
-            new_pair = (new_vocab, next_vocab)
-            push(current_counts, (1, new_pair, [i]))
-            print(f'DECREMENT: {old_pair} INCREMENT: {new_pair}')
-        if new_node.prev is not None:
-            prev_vocab = vocab[new_node.prev.data[1]]
-            old_pair = (bytes(prev_vocab), max_pair[1][0])
-            decrement_key(current_counts, old_pair, )
-            new_pair = (prev_vocab, new_vocab)
-            push(current_counts, (1, new_pair, [i]))
-            print(f'DECREMENT: {old_pair} INCREMENT: {new_pair}')
+            merged_boundary = new_node.data[0] + len(vocab[new_node.data[1]])
+            if verbose: print(f'MERGED BOUNDARY: {merged_boundary}')
         
     return max_pair[1]
 
@@ -88,10 +103,10 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], verbo
 
 if __name__ == '__main__':
     verbose=True
-    vocab, merges = train_bpe('my_tests/sample.txt', 260, [], verbose=verbose)
-    if verbose:
-        print('---- VOCABULARY ----')
-        for k, v in vocab.items():
-            if k >= 256: print(f'{k}: {v}')
-        print('---- MERGES ----')
-        print(merges)
+    # vocab, merges = train_bpe('my_tests/sample.txt', 260, [], verbose=verbose)
+    vocab, merges = train_bpe('my_tests/overlap_sample.txt', 257, [], verbose=verbose)
+    print('---- VOCABULARY ----')
+    for k, v in vocab.items():
+        if k >= 256: print(f'{k}: {v}')
+    print('---- MERGES ----')
+    print(merges)

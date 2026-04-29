@@ -4,6 +4,14 @@ class Node:
         self.next = None
         self.prev = None
 
+    def __str__(self):
+        out = f'{self.data}'
+        if self.next is not None:
+            out += f' NEXT: {self.next.data}'
+        if self.prev is not None:
+            out += f' Prev: {self.prev.data}'
+        return out
+
 
 class DoublyLinkedList:
     def __init__(self):
