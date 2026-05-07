@@ -22,6 +22,8 @@ def split_special_tokens_keep(input: str, special_tokens: list, verbose=False):
 
 
 def get_counts(tokens):
+    if len(tokens) <= 1:
+        pdb.set_trace()
     assert(len(tokens) > 1)
     pair_counts = defaultdict(int)
     for i in range(len(tokens) - 1):
