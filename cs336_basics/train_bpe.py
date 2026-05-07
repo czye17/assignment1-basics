@@ -2,6 +2,9 @@ import regex as re
 from heap import init_heap, decrement_key, push, pop
 from linked_list import DoublyLinkedList
 
+# TODO: handle special tokens and splitting 
+# TODO: pre-tokenization
+
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 def read_file(path: str, verbose=False):
@@ -88,6 +91,11 @@ def update_pair_counts(current_counts: dict, vocab: dict, node_list: DoublyLinke
         
     return max_pair[1]
 
+
+def format_output(vocab: dict, merges: list):
+    pass
+
+
 def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], verbose=False):
     file = list(read_file(input_path, verbose=verbose))
     vocab = {i: chr(i).encode('utf-8') for i in range(256)}
@@ -101,10 +109,10 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], verbo
         merges.append((merge[0], merge[1]))
     return vocab, merges
 
+
 if __name__ == '__main__':
-    verbose=True
-    # vocab, merges = train_bpe('my_tests/sample.txt', 260, [], verbose=verbose)
-    vocab, merges = train_bpe('my_tests/overlap_sample.txt', 257, [], verbose=verbose)
+    vocab, merges = train_bpe('my_tests/sample.txt', 260, [], verbose=True)
+    # vocab, merges = train_bpe('my_tests/overlap_sample.txt', 257, [], verbose=verbose)
     print('---- VOCABULARY ----')
     for k, v in vocab.items():
         if k >= 256: print(f'{k}: {v}')
