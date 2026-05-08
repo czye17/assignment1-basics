@@ -1,4 +1,4 @@
-from einops import rearrange, einsum
+from einops import einsum
 
 import numpy as np
 import torch
