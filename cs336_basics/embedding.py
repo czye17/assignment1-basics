@@ -1,6 +1,5 @@
 from einops import rearrange
 
-import numpy as np
 import torch
 
 
