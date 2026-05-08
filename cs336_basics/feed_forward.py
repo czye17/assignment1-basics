@@ -7,7 +7,6 @@ import torch
 class SwiGLU(torch.nn.Module):
     def __init__(self, d_model: int, d_ff: int, device: torch.device | None=None, dtype: torch.dtype | None = None):
         super().__init__()
-        self.device = 'cpu' if device is None else device
         self.dtype = torch.float32 if dtype is None else dtype
         self.d_model = d_model
         self.d_ff = d_ff
@@ -19,7 +18,7 @@ class SwiGLU(torch.nn.Module):
 
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x.to(self.device)
+        x = x.to(self.weights1.device)
         w1_x = einsum(x, self.weights1, '... d_model, d_ff d_model -> ... d_ff')
         silu = einsum(w1_x, torch.sigmoid(w1_x), '..., ... -> ...')
         w3_x = einsum(x, self.weights3, '... d_model, d_ff d_model -> ... d_ff')
