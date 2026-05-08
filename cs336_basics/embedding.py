@@ -11,9 +11,10 @@ class Embedding(torch.nn.Module):
         dtype = dtype if dtype is not None else torch.float32
         weights = torch.nn.init.trunc_normal_(torch.zeros((num_embeddings, embedding_dim), dtype=dtype), mean=0.0, std=1, a=-3, b=3)
         self.weights = torch.nn.Parameter(weights)
-        if device is not None:
-            self.weights.to(device)
+        self.device = 'cpu' if device is None else device
+        self.weights.to(self.device)
 
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        token_ids.to(self.device)
         return self.weights[token_ids]

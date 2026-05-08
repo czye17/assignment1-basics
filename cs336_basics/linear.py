@@ -11,11 +11,12 @@ class Linear(torch.nn.Module):
         dtype = dtype if dtype is not None else torch.float32
         weights = torch.nn.init.trunc_normal_(torch.zeros((out_features, in_features), dtype=dtype), mean=0.0, std=std, a=-3*std, b=3*std)
         self.weights = torch.nn.Parameter(weights)
-        if device is not None:
-            self.weights.to(device)
+        self.device = 'cpu' if device is None else device
+        self.weights.to(self.device)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x.to(self.device)
         return einsum(x, self.weights, '... d_in, d_out d_in -> ... d_out')
 
 
