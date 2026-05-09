@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
+from einops import rearrange
 
 import numpy.typing as npt
 import torch
@@ -16,6 +17,7 @@ from cs336_basics.embedding import Embedding
 from cs336_basics.rms_norm import RMSNorm
 from cs336_basics.feed_forward import SwiGLU
 from cs336_basics.rope import RoPE
+from cs336_basics.attention import softmax, attention, MultiHeadSelfAttention
 
 
 def run_linear(
@@ -123,7 +125,8 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+
+    return attention(Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -157,7 +160,12 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    self_attn = MultiHeadSelfAttention(d_model, num_heads)
+    self_attn.load_state_dict({
+        'proj': rearrange(torch.stack([q_proj_weight, k_proj_weight, v_proj_weight]), 'type d1 d2 -> d2 (type d1)'), 
+        'out_proj': rearrange(o_proj_weight, 'd1 d2 -> d2 d1')
+    })
+    return self_attn(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -197,7 +205,13 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+
+    self_attn = MultiHeadSelfAttention(d_model, num_heads, use_rope=True, max_seq_len=max_seq_len, theta=theta)
+    self_attn.load_state_dict({
+        'proj': rearrange(torch.stack([q_proj_weight, k_proj_weight, v_proj_weight]), 'type d1 d2 -> d2 (type d1)'), 
+        'out_proj': rearrange(o_proj_weight, 'd1 d2 -> d2 d1')
+    })
+    return self_attn(in_features, token_positions)
 
 
 def run_rope(
@@ -455,7 +469,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(

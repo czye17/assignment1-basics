@@ -11,10 +11,11 @@ class SwiGLU(torch.nn.Module):
         self.d_model = d_model
         self.d_ff = d_ff
 
+        device = 'cpu' if device is None else device
         std = np.sqrt(2/(d_model + d_ff))
-        self.weights1 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_ff, d_model), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(self.device)
-        self.weights2 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_model, d_ff), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(self.device)
-        self.weights3 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_ff, d_model), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(self.device)
+        self.weights1 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_ff, d_model), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(device)
+        self.weights2 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_model, d_ff), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(device)
+        self.weights3 = torch.nn.Parameter(torch.nn.init.trunc_normal_(torch.zeros((d_ff, d_model), dtype=self.dtype), mean=0.0, std=std, a=-3*std, b=3*std)).to(device)
 
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:

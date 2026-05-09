@@ -24,4 +24,4 @@ class RoPE(torch.nn.Module):
         x = rearrange(x, '... s (k k2) -> ... s k k2', k2 = 2)
         order_rotation = self.rotation[token_positions]
         result = einsum(order_rotation, x, '... s k r c, ... s k c -> ... s k r')
-        return rearrange(result, '... k r -> ... (k r)')
+        return rearrange(result, '... s k r -> ... s (k r)')
