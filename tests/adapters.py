@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pdb
 import os
 from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
@@ -17,7 +18,7 @@ from cs336_basics.embedding import Embedding
 from cs336_basics.rms_norm import RMSNorm
 from cs336_basics.feed_forward import SwiGLU
 from cs336_basics.rope import RoPE
-from cs336_basics.attention import softmax, attention, MultiHeadSelfAttention
+from cs336_basics.attention import softmax, attention, MultiHeadSelfAttention, MultiHeadSelfAttentionNoRoPE, TransformerBlock, TransformerLM
 
 
 def run_linear(
@@ -129,6 +130,14 @@ def run_scaled_dot_product_attention(
     return attention(Q, K, V, mask)
 
 
+def get_attn_proj_weights(q_proj_weight, k_proj_weight, v_proj_weight):
+    return rearrange(torch.stack([q_proj_weight, k_proj_weight, v_proj_weight]), 'type d1 d2 -> d2 (type d1)')
+
+
+def get_attn_out_weight(o_proj_weight):
+    return rearrange(o_proj_weight, 'd1 d2 -> d2 d1')
+
+
 def run_multihead_self_attention(
     d_model: int,
     num_heads: int,
@@ -160,10 +169,10 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    self_attn = MultiHeadSelfAttention(d_model, num_heads)
+    self_attn = MultiHeadSelfAttentionNoRoPE(d_model, num_heads)
     self_attn.load_state_dict({
-        'proj': rearrange(torch.stack([q_proj_weight, k_proj_weight, v_proj_weight]), 'type d1 d2 -> d2 (type d1)'), 
-        'out_proj': rearrange(o_proj_weight, 'd1 d2 -> d2 d1')
+        'proj': get_attn_proj_weights(q_proj_weight, k_proj_weight, v_proj_weight), 
+        'out_proj': get_attn_out_weight(o_proj_weight) 
     })
     return self_attn(in_features)
 
@@ -206,10 +215,10 @@ def run_multihead_self_attention_with_rope(
         implementation with the given QKV projection weights and input features.
     """
 
-    self_attn = MultiHeadSelfAttention(d_model, num_heads, use_rope=True, max_seq_len=max_seq_len, theta=theta)
+    self_attn = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, theta=theta)
     self_attn.load_state_dict({
-        'proj': rearrange(torch.stack([q_proj_weight, k_proj_weight, v_proj_weight]), 'type d1 d2 -> d2 (type d1)'), 
-        'out_proj': rearrange(o_proj_weight, 'd1 d2 -> d2 d1')
+        'proj': get_attn_proj_weights(q_proj_weight, k_proj_weight, v_proj_weight), 
+        'out_proj': get_attn_out_weight(o_proj_weight)
     })
     return self_attn(in_features, token_positions)
 
@@ -308,7 +317,19 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+
+    tf_block = TransformerBlock(d_model, num_heads, d_ff, max_seq_len, theta)
+    weights_renamed = {
+        'attn.proj': get_attn_proj_weights(weights['attn.q_proj.weight'], weights['attn.k_proj.weight'], weights['attn.v_proj.weight']),
+        'attn.out_proj': get_attn_out_weight(weights['attn.output_proj.weight']),
+        'ln1.norms': weights['ln1.weight'],
+        'ln2.norms': weights['ln2.weight'],
+        'ffn.weights1': weights['ffn.w1.weight'],
+        'ffn.weights2': weights['ffn.w2.weight'],
+        'ffn.weights3': weights['ffn.w3.weight']
+    }
+    tf_block.load_state_dict(weights_renamed)
+    return tf_block(in_features)
 
 
 def run_transformer_lm(
@@ -390,7 +411,23 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+
+    tf = TransformerLM(d_model, num_heads, d_ff, context_length, vocab_size, num_layers, rope_theta)
+    weights_renamed = {
+        'embedding.weights': weights['token_embeddings.weight'],
+        'ln.norms': weights['ln_final.weight'],
+        'linear.weights': weights['lm_head.weight']
+    }
+    for l in range(num_layers):
+        weights_renamed[f'tf_blocks.{l}.attn.proj'] = get_attn_proj_weights(weights[f'layers.{l}.attn.q_proj.weight'], weights[f'layers.{l}.attn.k_proj.weight'], weights[f'layers.{l}.attn.v_proj.weight'])
+        weights_renamed[f'tf_blocks.{l}.attn.out_proj'] = get_attn_out_weight(weights[f'layers.{l}.attn.output_proj.weight'])
+        weights_renamed[f'tf_blocks.{l}.ln1.norms'] = weights[f'layers.{l}.ln1.weight']
+        weights_renamed[f'tf_blocks.{l}.ln2.norms'] = weights[f'layers.{l}.ln2.weight']
+        weights_renamed[f'tf_blocks.{l}.ffn.weights1'] = weights[f'layers.{l}.ffn.w1.weight']
+        weights_renamed[f'tf_blocks.{l}.ffn.weights2'] = weights[f'layers.{l}.ffn.w2.weight']
+        weights_renamed[f'tf_blocks.{l}.ffn.weights3'] = weights[f'layers.{l}.ffn.w3.weight']
+    tf.load_state_dict(weights_renamed)
+    return tf(in_indices)
 
 
 def run_rmsnorm(

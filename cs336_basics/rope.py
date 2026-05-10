@@ -19,6 +19,7 @@ class RoPE(torch.nn.Module):
 
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        # pdb.set_trace()
         x = x.to(self.rotation.device)
         token_positions = token_positions.to(self.rotation.device)
         x = rearrange(x, '... s (k k2) -> ... s k k2', k2 = 2)
