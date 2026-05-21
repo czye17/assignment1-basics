@@ -4,6 +4,10 @@ import numpy as np
 import torch
 
 
+def silu(x: torch.Tensor):
+    return einsum(x, torch.sigmoid(x), '..., ... -> ...')
+
+
 class SwiGLU(torch.nn.Module):
     def __init__(self, d_model: int, d_ff: int, device: torch.device | None=None, dtype: torch.dtype | None = None):
         super().__init__()
@@ -21,8 +25,8 @@ class SwiGLU(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.to(self.weights1.device)
         w1_x = einsum(x, self.weights1, '... d_model, d_ff d_model -> ... d_ff')
-        silu = einsum(w1_x, torch.sigmoid(w1_x), '..., ... -> ...')
+        silu_out = silu(w1_x)
         w3_x = einsum(x, self.weights3, '... d_model, d_ff d_model -> ... d_ff')
-        swiglu = einsum(silu, w3_x, '..., ... -> ...')
+        swiglu = einsum(silu_out, w3_x, '..., ... -> ...')
         result = einsum(swiglu, self.weights2, '... d_ff, d_model d_ff -> ... d_model')
         return result
