@@ -1,7 +1,11 @@
+import os
 import pdb
+import pickle
 import regex as re
 
 from collections import defaultdict
+from functools import partial
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import heapq
 
 from cs336_basics.tokenizer import get_counts, merge
@@ -21,12 +25,51 @@ PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s
 BASE_VOCAB = 256
 
 
-def read_file(input_path: str, verbose=False):
-    with open(input_path, 'r') as file:
-        contents = file.read() # read in utf-8 encoding
-    if verbose:
-        print(contents)
-    return contents
+def get_chunk_boundaries(file, desired_num_chunks: int, special_tokens: list[bytes]):
+    for tok in special_tokens:
+        assert isinstance(tok, bytes)
+
+    # Get total file size in bytes
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+
+    chunk_size = file_size // desired_num_chunks
+
+    # Initial guesses for chunk boundary locations, uniformly spaced
+    # Chunks start on previous index, don't include last index
+    chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
+    chunk_boundaries[-1] = file_size
+
+    mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
+
+    for bi in range(1, len(chunk_boundaries) - 1):
+        # pdb.set_trace()
+        initial_position = chunk_boundaries[bi]
+        file.seek(initial_position)  # Start at boundary guess
+        while True:
+            mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
+
+            # If EOF, this boundary should be at the end of the file
+            if mini_chunk == b"":
+                chunk_boundaries[bi] = file_size
+                break
+
+            found_flag = False
+            # Find the special token in the mini chunk
+            for tok in special_tokens:
+                found_at = mini_chunk.find(tok)
+                if found_at != -1:
+                    chunk_boundaries[bi] = initial_position + found_at
+                    found_flag = True
+                    break
+
+            if found_flag:
+                break
+            initial_position += mini_chunk_size
+
+    # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
+    return sorted(set(chunk_boundaries))
 
 
 def split_special_tokens(input: str, special_tokens: list, verbose=False):
@@ -94,17 +137,87 @@ def comparator_to_pair(c_pair, rev_vocab):
     return (p0, p1)
 
 
-# input: list (split by special tokens) of iterators (given by pretokenization)
-def initialize_bpe(docs: list, verbose=False):
+def initialize_bpe_thread(bounds, input_path, special_tokens, verbose=False):
+    start, end = bounds
+    with open(input_path, 'rb') as file:
+        file.seek(start)
+        chunk = file.read(end - start).decode("utf-8", errors="ignore")
+        # Pretokenization
+    subchunks = split_special_tokens(chunk, special_tokens, verbose=verbose)
+    docs = pretokenize(subchunks, verbose=verbose)
+    word_counts, word_to_tokens, word_to_pair_cnts, pair_occurrences = init_counts(docs, verbose=verbose)
+
+    return word_counts, word_to_tokens, word_to_pair_cnts, pair_occurrences
+    # c_vocab, c_rev_vocab, c_word_counts, c_word_to_tokens, c_word_to_pair_cnts = initialize_bpe(docs, verbose=verbose)
+
+
+def add_to_int_default_dict(main: defaultdict[int], other: defaultdict[int]):
+    for k, v in other.items():
+        main[k] += v
+
+
+def add_to_set_default_dict(main: defaultdict[set], other: defaultdict[set]):
+    for k, v in other.items():
+        main[k].update(v)
+
+
+def insert_to_dict(main: dict, other: dict):
+    for k, v in other.items():
+        if k not in main:
+            main[k] = v
+
+
+def initialize_bpe_parallel(input_path, special_tokens, parallel=False, verbose=False, num_chunks=8):
+    special_tokens_bytes = [tok.encode('utf-8') for tok in special_tokens]
     vocab = {i: bytes([i]) for i in range(BASE_VOCAB)}
     rev_vocab = {val: tok for tok, val in vocab.items()}
 
-    word_counts, word_to_tokens, word_to_pair_cnts, pair_occurrences = init_counts(docs, verbose=verbose) 
-    
-    if verbose: 
-        print(f'Word Counts: {word_counts}')
-        print(f'Word To Pair Counts: {word_to_pair_cnts}')
+    with open(input_path, 'rb') as file:
+        chunk_boundaries = get_chunk_boundaries(file, desired_num_chunks=num_chunks, special_tokens=special_tokens_bytes)
+        list_bounds = zip(chunk_boundaries[:-1], chunk_boundaries[1:])
 
+    word_counts = defaultdict(int)
+    pair_occurrences = defaultdict(set)
+    word_to_tokens = {}
+    word_to_pair_cnts = {}
+    if parallel:
+        single_thread_func = partial(initialize_bpe_thread, input_path=input_path, special_tokens=special_tokens, verbose=verbose)
+
+        # CPU-bound → ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(single_thread_func, list_bounds))
+            for result in results:
+                c_word_counts, c_word_to_tokens, c_word_to_pair_cnts, c_pair_occurrences = result
+                add_to_int_default_dict(word_counts, c_word_counts)
+                add_to_set_default_dict(pair_occurrences, c_pair_occurrences)
+                insert_to_dict(word_to_tokens, c_word_to_tokens)
+                insert_to_dict(word_to_pair_cnts, c_word_to_pair_cnts)
+
+        # I/O-bound → ThreadPoolExecutor
+        # with ThreadPoolExecutor(max_workers=10) as executor:
+        #     futures = [executor.submit(single_thread_func, bounds) for bounds in list_bounds]
+        #     for future in as_completed(futures):
+        #         # complete = futures[future]           # look up which URL this was
+        #         try:
+        #             result = future.result()
+        #             print(f"✓ Got one result.")   # process immediately
+        #             c_word_counts, c_word_to_tokens, c_word_to_pair_cnts, c_pair_occurrences = result
+        #             add_to_int_default_dict(word_counts, c_word_counts)
+        #             add_to_set_default_dict(pair_occurrences, c_pair_occurrences)
+        #             insert_to_dict(word_to_tokens, c_word_to_tokens)
+        #             insert_to_dict(word_to_pair_cnts, c_word_to_pair_cnts)
+        #         except Exception as e:
+        #             print(f"✗ failed.")
+                
+        # raise NotImplementedError('Parallel BPE Initialization Not Implemented.')
+    else:
+        for (start, end) in list_bounds:
+            c_word_counts, c_word_to_tokens, c_word_to_pair_cnts, c_pair_occurrences = initialize_bpe_thread((start, end), input_path, special_tokens, verbose=verbose)
+            add_to_int_default_dict(word_counts, c_word_counts)
+            add_to_set_default_dict(pair_occurrences, c_pair_occurrences)
+            insert_to_dict(word_to_tokens, c_word_to_tokens)
+            insert_to_dict(word_to_pair_cnts, c_word_to_pair_cnts)
+    
     pair_counts = defaultdict(int)
     for pair, word_set in pair_occurrences.items():
         for word in word_set:
@@ -113,8 +226,7 @@ def initialize_bpe(docs: list, verbose=False):
     heap_counts = []
     for pair, cnt in pair_counts.items():
         heapq.heappush(heap_counts, (-cnt, pair_to_comparator(pair, vocab)))
-    if verbose: print(f'Total Pair Counts: {heap_counts}')
-    
+
     return vocab, rev_vocab, word_counts, word_to_tokens, word_to_pair_cnts, pair_counts, heap_counts, pair_occurrences
 
 
@@ -170,11 +282,8 @@ def get_best_pair(pair_counts, heap_counts, rev_vocab, verbose=False):
     return best_count, best_pair
 
 
-def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], verbose=False):
-    file = read_file(input_path, verbose=verbose)
-    chunks = split_special_tokens(file, special_tokens, verbose=verbose)
-    docs = pretokenize(chunks, verbose=verbose)
-    vocab, rev_vocab, word_counts, word_to_tokens, word_to_pair_cnts, pair_counts, heap_counts, pair_occurrences = initialize_bpe(docs, verbose=verbose)
+def train_bpe_parallel(input_path: str, vocab_size: int, special_tokens: list[str], num_chunks=8, parallel=False, verbose=False):
+    vocab, rev_vocab, word_counts, word_to_tokens, word_to_pair_cnts, pair_counts, heap_counts, pair_occurrences = initialize_bpe_parallel(input_path, special_tokens, num_chunks=num_chunks, parallel=parallel, verbose=verbose)
     merges = []
 
     while len(vocab) < vocab_size - len(special_tokens):
@@ -201,9 +310,27 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], verbo
     return vocab, merges
 
 
-if __name__ == '__main__':
+def basic_test():
     test_special_tokens()
     print('---- TEST: Train BPE ----')
-    vocab, merges = train_bpe('my_tests/sample.txt', 356, ['<|endoftext|>'], verbose=False)
+    vocab, merges = train_bpe_parallel('my_tests/sample.txt', 356, ['<|endoftext|>'], num_chunks=1, verbose=False)
     print(f'VOCABULARY: {vocab}')
     print(f'MERGES: {merges}')
+
+
+def train_bpe_tokenizer(file_path, vocab_size, dest):
+    vocab, merges = train_bpe_parallel(file_path, vocab_size, ['<|endoftext|>'], num_chunks=10, verbose=False)
+
+    tokenizer_data = {
+        'vocab': vocab,
+        'merges': merges
+    }
+
+    with open(dest, 'w') as f:
+        pickle.dump(tokenizer_data, f)
+
+
+if __name__ == '__main__':
+    # basic_test()
+    train_bpe_tokenizer('data/TinyStoriesV2-GPT4-train.txt', 10000, 'my_tests/TinyStoriesTokenizer.pkl')
+

@@ -11,7 +11,7 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
-from cs336_basics.train_bpe import train_bpe
+from cs336_basics.train_bpe import train_bpe_parallel
 from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.linear import Linear
 from cs336_basics.embedding import Embedding
@@ -669,4 +669,4 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
-    return train_bpe(input_path, vocab_size, special_tokens, verbose=False)
+    return train_bpe_parallel(input_path, vocab_size, special_tokens, parallel=False)

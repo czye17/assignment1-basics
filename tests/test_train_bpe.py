@@ -13,6 +13,7 @@ def test_train_bpe_speed():
     reference implementation on my laptop. In contrast, the toy implementation
     takes around 3 seconds.
     """
+    # input_path = FIXTURES_PATH / "tinystories_sample_5M.txt"
     input_path = FIXTURES_PATH / "corpus.en"
     start_time = time.time()
     _, _ = run_train_bpe(
@@ -26,6 +27,7 @@ def test_train_bpe_speed():
 
 def test_train_bpe():
     input_path = FIXTURES_PATH / "corpus.en"
+    # input_path = FIXTURES_PATH / "tinystories_sample_5M.txt"
     vocab, merges = run_train_bpe(
         input_path=input_path,
         vocab_size=500,
